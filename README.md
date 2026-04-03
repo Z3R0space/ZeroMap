@@ -73,14 +73,14 @@ sudo apt install libcurl4-openssl-dev libcjson-dev
 ## Installation
 
 ```bash
-git clone https://github.com/yourname/zeromap.git
-cd zeromap
+git clone https://github.com/Z3R0space/ZeroMap.git
+cd ZeroMap
 
 # Install dependencies
 sudo apt install libcurl4-openssl-dev libcjson-dev
 
 # Or manually
-gcc -O2 -Wall -D_GNU_SOURCE -o scanner main.c scanner.c -lpthread -lcurl -lcjson
+gcc -O2 -Wall -D_GNU_SOURCE -o zeromap main.c zeromap.c -lpthread -lcurl -lcjson
 ```
 
 ### Shodan API key (optional)
