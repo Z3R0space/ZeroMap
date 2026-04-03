@@ -105,8 +105,8 @@ By default ZeroMap uses `ens33`. If your interface is different (`eth0`, `wlan0`
 
 ```
 Usage:
-  sudo ./scanner <target-IP> [--ports <range>] [--mode] [--decoy] [--shodan]
-  sudo ./scanner --file <targets.txt> [--ports <range>] [--mode] [--decoy] [--shodan]
+  sudo ./zeromap <target-IP> [--ports <range>] [--mode] [--decoy] [--shodan]
+  sudo ./zeromap --file <targets.txt> [--ports <range>] [--mode] [--decoy] [--shodan]
 ```
 
 ### Options
@@ -131,29 +131,29 @@ Usage:
 
 ```bash
 # Default SYN scan — all ports
-sudo ./scanner 192.168.1.1
+sudo ./zeromap 192.168.1.1
 
 # Scan only the first 1024 ports
-sudo ./scanner 192.168.1.1 --ports 1-1024
+sudo ./zeromap 192.168.1.1 --ports 1-1024
 
 # XMAS scan on a port range
-sudo ./scanner 192.168.1.1 --ports 1-1024 --xmas
+sudo ./zeromap 192.168.1.1 --ports 1-1024 --xmas
 
 # SYN scan with a decoy burst to bury your real IP
-sudo ./scanner 192.168.1.1 --decoy
+sudo ./zeromap 192.168.1.1 --decoy
 
 # Combine any mode with decoy
-sudo ./scanner 192.168.1.1 --slow --decoy --ports 1-500
-sudo ./scanner 192.168.1.1 --xmas --decoy
+sudo ./zeromap 192.168.1.1 --slow --decoy --ports 1-500
+sudo ./zeromap 192.168.1.1 --xmas --decoy
 
 # Passive Shodan lookup (no packets sent to target)
-sudo ./scanner 192.168.1.1 --shodan
-sudo ./scanner 192.168.1.1 --shodan --ports 1-1024
+sudo ./zeromap 192.168.1.1 --shodan
+sudo ./zeromap 192.168.1.1 --shodan --ports 1-1024
 
 # Scan multiple targets from a file
-sudo ./scanner --file targets.txt
-sudo ./scanner --file targets.txt --ports 1-1024 --syn --decoy
-sudo ./scanner --file targets.txt --shodan
+sudo ./zeromap --file targets.txt
+sudo ./zeromap --file targets.txt --ports 1-1024 --syn --decoy
+sudo ./zeromap --file targets.txt --shodan
 ```
 
 ---
@@ -182,7 +182,7 @@ Sends SYNs with randomised inter-packet delays between 5ms and 50ms. Designed to
 Before running the actual scan, ZeroMap sends 100 spoofed SYN packets from each of 5 hardcoded fake IPs. This floods the target's connection log with noise, making your real IP harder to identify. Decoy is a **flag**, not a mode — combine it with any scan type:
 
 ```bash
-sudo ./scanner 10.0.0.1 --xmas --decoy --ports 1-1024
+sudo ./zeromap 10.0.0.1 --xmas --decoy --ports 1-1024
 ```
 
 ### Shodan passive scan (`--shodan`)
@@ -285,7 +285,7 @@ ZeroMap bypasses the kernel's TCP stack entirely by opening `AF_PACKET` raw sock
 ```
 zeromap/
 ├── scanner.h      # Configuration, structs, public API
-├── scanner.c      # Packet crafting, TX/RX threads, Shodan
+├── zeromap.c      # Packet crafting, TX/RX threads, Shodan
 ├── main.c         # Argument parsing, scan orchestration
 ```
 
