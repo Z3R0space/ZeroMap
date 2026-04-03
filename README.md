@@ -301,7 +301,3 @@ zeromap/
 - **Decoy IPs are hardcoded** in `scanner.h` — edit `DECOY_IPS[]` to use your own
 
 ---
-
-## License
-
-MIT — see `LICENSE` for details.
