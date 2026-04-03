@@ -42,9 +42,6 @@ static const char *DECOY_IPS[MAX_DECOYS] = {
 #define SLOW_MAX_DELAY_US  50000
 
 // Shodan conf
-<<<<<<< HEAD
-#define SHODAN_API_KEY  "XR6lTYiy9Ej2U8QDVRB0slhHImP7pV3g"
-=======
 #define SHODAN_API_KEY  "YOUR_SHODAN_API_KEY_HERE"
 >>>>>>> 2d661c9 (Create scanner.h)
 void shodan_scan(const char *ip, int start_port, int end_port);
