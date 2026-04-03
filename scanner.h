@@ -43,7 +43,6 @@ static const char *DECOY_IPS[MAX_DECOYS] = {
 
 // Shodan conf
 #define SHODAN_API_KEY  "YOUR_SHODAN_API_KEY_HERE"
->>>>>>> 2d661c9 (Create scanner.h)
 void shodan_scan(const char *ip, int start_port, int end_port);
 
 // Shared data structure
