@@ -15,8 +15,8 @@
 #include <sys/ioctl.h>
 #include <sys/uio.h>
 
+// Print Banner
 static void print_banner(void) {
-    // taglines
     static const char *taglines[] = {
         "Nmap slow? Ewww...",
         "Rustscan who?",
@@ -24,18 +24,16 @@ static void print_banner(void) {
         "We don't knock. We peek.",
         "Sending RSTs since day one.",
         "Your firewall called. It's scared.",
-        "Nmap, Rustscan, Masscan can eat my ahh-",
         "Fragmented packets, unfragmented results.",
         "Slow scan? Only if you want it.",
         "Zero handshakes. All the info.",
         "We found your ports before you knew they were open.",
     };
-
     int n = sizeof(taglines) / sizeof(taglines[0]);
     srand((unsigned)time(NULL));
     const char *tag = taglines[rand() % n];
 
-    printf("\033[1;36m");   /* bold cyan */
+    printf("\033[1;36m");
     printf("                                                        \n");
     printf("  ███████╗███████╗██████╗  ██████╗ ███╗   ███╗ █████╗ ██████╗ \n");
     printf("     ███╔╝██╔════╝██╔══██╗██╔═══██╗████╗ ████║██╔══██╗██╔══██╗\n");
@@ -43,76 +41,74 @@ static void print_banner(void) {
     printf("   ███╔╝  ██╔══╝  ██╔══██╗██║   ██║██║╚██╔╝██║██╔══██║██╔═══╝ \n");
     printf("  ███████╗███████╗██║  ██║╚██████╔╝██║ ╚═╝ ██║██║  ██║██║     \n");
     printf("  ╚══════╝╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚═╝     ╚═╝╚═╝  ╚═╝╚═╝     \n");
-    printf("\033[0m");      /* reset */
+    printf("\033[0m");
 
-    printf("\033[0;36m");   /* dim cyan */
+    printf("\033[0;36m");
     printf("Z E R O M A P  —  G o d s p e e d  E d i t i o n\n");
     printf("\033[0m");
 
-    printf("\033[1;33m");   /* bold yellow */
+    printf("\033[1;33m");
     printf("[ %s ]\n", tag);
     printf("\033[0m");
 
-    printf("\033[0;90m");   /* dark grey */
-    printf("         Raw sockets · Multi-mode · Shodan passive · Decoy burst\n");
+    printf("\033[0;90m");
+    printf("       Raw sockets · Multi-mode · Shodan passive · Decoy burst\n");
     printf("  ─────────────────────────────────────────────────────────────────\n");
     printf("\033[0m\n");
 }
 
+// Print usage
 static void print_usage(const char *prog) {
-    printf("\nUsage: %s <target-IP> [--mode]\n\n", prog);
-    printf("Modes:\n");
+    printf("\nUsage:\n");
+    printf("  %s <target-IP> [--ports <range>] [--mode] [--decoy] [--shodan]\n", prog);
+    printf("  %s --file <targets.txt> [--ports <range>] [--mode] [--decoy] [--shodan]\n\n", prog);
+
+    printf("Target:\n");
+    printf("  <IP>              Single target IP\n");
+    printf("  --file <path>     File with one IP per line (# = comment)\n\n");
+
+    printf("Port range:\n");
+    printf("  --ports 1-1024    Scan ports 1 to 1024\n");
+    printf("  --ports 80        Scan only port 80\n");
+    printf("  (none)            Scan all ports 1-%d (default)\n\n", MAX_PORT);
+
+    printf("Scan modes:\n");
     printf("  (none)   SYN scan  – fast half-open scan (default)\n");
     printf("  --syn    SYN scan  – same as default\n");
     printf("  --fin    FIN scan  – send FIN instead of SYN\n");
-    printf("             Works on RFC-compliant stacks (Linux, BSD).\n");
-    printf("             Closed ports send RST; open ports stay silent.\n");
     printf("  --null   NULL scan – no TCP flags at all\n");
-    printf("             Same detection logic as FIN.\n");
     printf("  --xmas   XMAS scan – FIN+PSH+URG flags set\n");
-    printf("             Christmas-tree packet; same idea as FIN/NULL.\n");
-    printf("  --decoy  Decoy SYN – burst fake-IP traffic first,\n");
-    printf("             then run a normal SYN scan. Buries your IP.\n");
-    printf("  --frag   Frag scan – split SYN across two IP fragments.\n");
-    printf("             Confuses older firewalls that inspect only\n");
-    printf("             the first fragment.\n");
-    printf("  --slow   Slow scan – SYN with random inter-packet delay.\n");
-    printf("             Evades rate-based IDS thresholds.\n");
-    printf("  --shodan Shodan scan - Passive scan without active interaction.\n");
-    printf("             Evades all types of defensive mechanism.\n\n");
+    printf("  --frag   Frag scan – split SYN across two IP fragments\n");
+    printf("  --slow   Slow scan – SYN with random inter-packet delay\n\n");
+
+    printf("Flags:\n");
+    printf("  --decoy  Fire spoofed-IP burst before the real scan\n");
+    printf("  --shodan Passive Shodan lookup only (no packets sent)\n\n");
+
     printf("Examples:\n");
     printf("  %s 192.168.1.1\n", prog);
-    printf("  %s 192.168.1.1 --xmas\n", prog);
-    printf("  %s 192.168.1.1 --decoy\n", prog);
-    printf("  %s 192.168.1.1 --xmas --decoy\n\n", prog);
+    printf("  %s 192.168.1.1 --ports 1-1024 --xmas\n", prog);
+    printf("  %s 192.168.1.1 --slow --decoy\n", prog);
+    printf("  %s 192.168.1.1 --shodan --ports 1-1024\n", prog);
+    printf("  %s --file targets.txt\n", prog);
+    printf("  %s --file targets.txt --ports 1-1024 --syn --decoy\n\n", prog);
+
+    printf("Target file format:\n");
+    printf("  # This is a comment\n");
+    printf("  192.168.1.1\n");
+    printf("  10.0.0.5\n");
+    printf("  172.16.0.99\n\n");
 }
 
+// Parse Mode
 static int parse_mode(const char *arg, scan_mode_t *out) {
-    if (!arg || strcmp(arg, "--syn")   == 0) { *out = MODE_SYN;   return 0; }
-    if (strcmp(arg, "--fin")   == 0)         { *out = MODE_FIN;   return 0; }
-    if (strcmp(arg, "--null")  == 0)         { *out = MODE_NULL;  return 0; }
-    if (strcmp(arg, "--xmas")  == 0)         { *out = MODE_XMAS;  return 0; }
-    if (strcmp(arg, "--frag")  == 0)         { *out = MODE_FRAG;  return 0; }
-    if (strcmp(arg, "--slow")  == 0)         { *out = MODE_SLOW;  return 0; }
+    if (strcmp(arg, "--syn")  == 0) { *out = MODE_SYN;  return 0; }
+    if (strcmp(arg, "--fin")  == 0) { *out = MODE_FIN;  return 0; }
+    if (strcmp(arg, "--null") == 0) { *out = MODE_NULL; return 0; }
+    if (strcmp(arg, "--xmas") == 0) { *out = MODE_XMAS; return 0; }
+    if (strcmp(arg, "--frag") == 0) { *out = MODE_FRAG; return 0; }
+    if (strcmp(arg, "--slow") == 0) { *out = MODE_SLOW; return 0; }
     return -1;
-}
-
-// Parse port range
-static int parse_port_range(const char *arg, int *start, int *end) {
-    // Accepts "21" (single port) or "1-1000" (range)
-    char *dash = strchr(arg, '-');
-    if (dash) {
-        *start = atoi(arg);
-        *end = atoi(dash + 1);
-    }
-    else {
-        *start = *end = atoi(arg);
-    }
-    // Validate
-    if (*start < 1 || *end > MAX_PORT || *start > *end) {
-        return -1;
-    }
-    return 0;
 }
 
 static const char *mode_name(scan_mode_t m) {
@@ -128,26 +124,68 @@ static const char *mode_name(scan_mode_t m) {
     }
 }
 
-static void retry_scan(scan_data_t *data) {
-    int is_stealth = (data->mode == MODE_FIN  ||
-                      data->mode == MODE_NULL ||
-                      data->mode == MODE_XMAS);
+// Parse Port Range
+static int parse_port_range(const char *arg, int *start, int *end) {
+    char *dash = strchr(arg, '-');
+    if (dash) {
+        *start = atoi(arg);
+        *end   = atoi(dash + 1);
+    } else {
+        *start = *end = atoi(arg);
+    }
+    if (*start < 1 || *end > MAX_PORT || *start > *end) return -1;
+    return 0;
+}
 
+// Load targets file (for multiple targets)
+static char **load_targets(const char *path, int *count) {
+    FILE *fp = fopen(path, "r");
+    if (!fp) {
+        perror("[-] Cannot open target file");
+        return NULL;
+    }
+
+    /* First pass: count valid (non-blank, non-comment) lines */
+    char line[64];
+    int  n = 0;
+    while (fgets(line, sizeof(line), fp)) {
+        if (line[0] == '#' || line[0] == '\n' || line[0] == '\r')
+            continue;
+        n++;
+    }
+    rewind(fp);
+
+    if (n == 0) {
+        fprintf(stderr, "[-] Target file '%s' has no valid entries\n", path);
+        fclose(fp);
+        *count = 0;
+        return NULL;
+    }
+
+    char **ips = malloc(n * sizeof(char *));
+    if (!ips) { perror("malloc ips"); fclose(fp); return NULL; }
+
+    /* Second pass: store each IP string */
+    int i = 0;
+    while (i < n && fgets(line, sizeof(line), fp)) {
+        if (line[0] == '#' || line[0] == '\n' || line[0] == '\r')
+            continue;
+        line[strcspn(line, "\r\n")] = '\0';
+        ips[i++] = strdup(line);
+    }
+
+    fclose(fp);
+    *count = i;
+    return ips;
+}
+
+// Retry scan
+static void retry_scan(scan_data_t *data) {
     int *retry_ports = malloc((MAX_PORT + 1) * sizeof(int));
     if (!retry_ports) { perror("malloc retry_ports"); return; }
 
     int retry_count = 0;
-    for (int p = 1; p <= MAX_PORT; p++) {
-        /*
-         * Only retry ports that are genuinely unresolved:
-         * - We sent a probe            (syn_sent)
-         * - No SYN+ACK received        (!open_ports)
-         * - No RST received            (!closed_ports)  ← KEY FIX
-         *
-         * For stealth modes this means truly ambiguous ports.
-         * For SYN mode closed_ports[] is also set on RST, so we
-         * only retry ports that got no reply at all.
-         */
+    for (int p = data->start_port; p <= data->end_port; p++) {
         if (data->syn_sent[p]
          && !data->open_ports[p]
          && !data->closed_ports[p])
@@ -172,19 +210,18 @@ static void retry_scan(scan_data_t *data) {
 
     pthread_t  tx[TX_THREADS];
     tx_args_t  args[TX_THREADS];
-
     int base   = retry_count / n_threads;
     int extra  = retry_count % n_threads;
     int offset = 0;
 
     for (int i = 0; i < n_threads; i++) {
-        int count = base + (i < extra ? 1 : 0);
-        args[i].data       = data;
-        args[i].thread_id  = i;
-        args[i].port_list  = retry_ports + offset;
-        args[i].port_count = count;
+        int cnt = base + (i < extra ? 1 : 0);
+        args[i].data          = data;
+        args[i].thread_id     = i;
+        args[i].port_list     = retry_ports + offset;
+        args[i].port_count    = cnt;
         args[i].total_threads = n_threads;
-        offset += count;
+        offset += cnt;
         pthread_create(&tx[i], NULL, send_thread, &args[i]);
     }
 
@@ -194,49 +231,13 @@ static void retry_scan(scan_data_t *data) {
     free(retry_ports);
 }
 
-static char **load_targets(const char *path, int *count) {
-    FILE *fp = fopen(path, "r");
-    if (!fp) {
-        perror("[-] Cannot open target file");
-        return NULL;
-    }
-
-    // First pass - count non-empty, non-comment lines
-    char line[64];
-    int n = 0;
-    while (fgets(line, sizeof(line), fp)) {
-        if (line[0] != '#' && line[0] != '\n' && line[0] != '\r') {
-            n++;
-        }
-    }
-    rewind(fp);
-
-    char **ips = malloc(n * sizeof(char *));
-    if (!ips) {
-        fclose(fp);
-        return NULL;
-    }
-
-    // Second pass - store each IP string
-    int i = 0;
-    while (i < n && fgets(line, sizeof(line), fp)) {
-        line[strcspn(line, "\r\n")] = '\0';
-        if (line[0] == "#" || line[0] == "\0") {
-            continue;
-        }
-        ips[i++] = strdup(line);
-    }
-    fclose(fp);
-    *count = i;
-    return ips;
-}
-
+// Run scan
 static void run_scan(scan_data_t *data) {
-    memset(data->open_ports, 0, sizeof(data->open_ports));
+    memset(data->open_ports,   0, sizeof(data->open_ports));
     memset(data->closed_ports, 0, sizeof(data->closed_ports));
-    memset(data->syn_sent, 0, sizeof(data->syn_sent));
+    memset(data->syn_sent,     0, sizeof(data->syn_sent));
     threads_done = 0;
-    all_sent = 0;
+    all_sent     = 0;
 
     if (data->use_decoy) {
         unsigned char src_mac[6], dst_mac[6];
@@ -249,22 +250,18 @@ static void run_scan(scan_data_t *data) {
     pthread_t rx;
     pthread_create(&rx, NULL, recv_thread, data);
 
-    pthread_t tx[TX_THREADS];
-    tx_args_t args[TX_THREADS];
+    pthread_t  tx[TX_THREADS];
+    tx_args_t  args[TX_THREADS];
     for (int i = 0; i < TX_THREADS; i++) {
-        args[i].data = data;
-        args[i].thread_id = i;
-        args[i].port_list = NULL;
-        args[i].port_count = 0;
+        args[i].data          = data;
+        args[i].thread_id     = i;
+        args[i].port_list     = NULL;
+        args[i].port_count    = 0;
         args[i].total_threads = TX_THREADS;
         pthread_create(&tx[i], NULL, send_thread, &args[i]);
     }
-
-    for (int i = 0; i < TX_THREADS; i++) {
-        pthread_join(tx[i], NULL);
-    }
+    for (int i = 0; i < TX_THREADS; i++) pthread_join(tx[i], NULL);
     pthread_join(rx, NULL);
-}
 
 #if MAX_RETRIES > 0
     {
@@ -273,10 +270,11 @@ static void run_scan(scan_data_t *data) {
         retry_scan(data);
     }
 #endif
+}
 
+// Main function
 int main(int argc, char *argv[]) {
     print_banner();
-    int use_shodan = 0;
 
     if (argc < 2) {
         print_usage(argv[0]);
@@ -288,73 +286,84 @@ int main(int argc, char *argv[]) {
         return 0;
     }
 
-    scan_mode_t mode = MODE_SYN;
-
+    // Initial scan state
     scan_data_t data;
     memset(&data, 0, sizeof(data));
-    strncpy(data.target_ip, argv[1], 15);
-    data.mode = mode;
+    data.mode       = MODE_SYN;
     data.start_port = 1;
-    data.end_port = MAX_PORT;
-    data.use_decoy = 0;
-    const char *target_file = NULL;
-    int arg_start = 2;
+    data.end_port   = MAX_PORT;
+    data.use_decoy  = 0;
 
-    // FILE or IP
+    const char *target_file = NULL;
+    int         use_shodan  = 0;
+    int         arg_start   = 2;
+
+    /*
+     * argv[1] is either:
+     *   --file   → multi-target mode; path is argv[2]
+     *   anything else → single IP
+     */
     if (strcmp(argv[1], "--file") == 0) {
         if (argc < 3) {
-            fprintf(stderr, "[-] --file requires a path argument.\n");
+            fprintf(stderr, "[-] --file requires a path argument\n");
             print_usage(argv[0]);
             return 1;
         }
         target_file = argv[2];
-        arg_start = 3;
-    }
-    else {
+        arg_start   = 3;
+    } else {
         strncpy(data.target_ip, argv[1], 15);
         data.target_ip[15] = '\0';
     }
 
-    // Parse argv - look for "--ports" anywhere in the arguments
-    for (int i = 2; i < argc; i++) {
-        if (strcmp(argv[i], "--ports") == 0 && i + 1 < argc) {
-            if (parse_port_range(argv[i + 1], &data.start_port, &data.end_port) != 0) {
-                fprintf(stderr, "[-] Invalid port range: %s\n", argv[i + 1]);
+    // Parse flags
+    for (int i = arg_start; i < argc; i++) {
+
+        if (strcmp(argv[i], "--ports") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "[-] --ports requires an argument\n");
                 return 1;
             }
-            i++;
+            if (parse_port_range(argv[++i],
+                                 &data.start_port,
+                                 &data.end_port) != 0) {
+                fprintf(stderr, "[-] Invalid port range: %s\n", argv[i]);
+                return 1;
+            }
+            continue;
         }
-        else if (strcmp(argv[i], "--decoy") == 0) {
-            data.use_decoy = 1;
-        }
-        else if (parse_mode(argv[i], &mode) == 0) {
-            data.mode = mode;
-        }
-        else if (strcmp(argv[i], "--shodan") == 0) {
-            use_shodan = 1;
-        }
-        else {
-            fprintf(stderr, "[-] Unknown argument: %s\n", argv[i]);
-            print_usage(argv[0]);
-            return 1;
-        }
+
+        if (strcmp(argv[i], "--decoy") == 0)  { data.use_decoy = 1; continue; }
+        if (strcmp(argv[i], "--shodan") == 0) { use_shodan = 1;     continue; }
+
+        scan_mode_t m;
+        if (parse_mode(argv[i], &m) == 0) { data.mode = m; continue; }
+
+        fprintf(stderr, "[-] Unknown argument: %s\n", argv[i]);
+        print_usage(argv[0]);
+        return 1;
     }
 
-    printf("\n[*] Target  : %s\n", data.target_ip);
-    printf("[*] Mode    : %s\n",   mode_name(mode));
+    // Print conf summary
+    printf("[*] Mode    : %s%s\n", mode_name(data.mode),
+           data.use_decoy ? " + Decoy burst" : "");
     printf("[*] Threads : %d TX + 1 RX\n", TX_THREADS);
-    printf("[*] Ports   : %d – %d\n\n", data.start_port, data.end_port);
+    printf("[*] Ports   : %d – %d\n", data.start_port, data.end_port);
+    if (use_shodan)
+        printf("[*] Method  : Shodan passive (no packets sent to target)\n");
+    printf("\n");
 
+    // Multiple targets (--file)
     if (target_file) {
-        int count = 0;
-        char **ips = load_targets(target_file, &count);
-        if (!ips) {
-            return 1;
-        }
+        int    count = 0;
+        char **ips   = load_targets(target_file, &count);
+        if (!ips) return 1;
 
         printf("[*] Loaded %d target(s) from '%s'\n", count, target_file);
 
         for (int t = 0; t < count; t++) {
+
+            /* Per-target header */
             printf("\n\033[1;36m");
             printf("  ┌─────────────────────────────────────────────┐\n");
             printf("  │  Target %d / %d  :  %-28s│\n",
@@ -367,22 +376,22 @@ int main(int argc, char *argv[]) {
 
             if (use_shodan) {
                 shodan_scan(data.target_ip, data.start_port, data.end_port);
-            }
-            else {
+            } else {
                 run_scan(&data);
-                printf("\n[*] DONE : %s\n", data.target_ip);
+                printf("\n[*] Done : %s\n", data.target_ip);
             }
+
             free(ips[t]);
         }
         free(ips);
-    }
-    else {
-        printf("[*] Target: %s\n\n", data.target_ip);
+
+    // Single target
+    } else {
+        printf("[*] Target  : %s\n\n", data.target_ip);
 
         if (use_shodan) {
             shodan_scan(data.target_ip, data.start_port, data.end_port);
-        }
-        else {
+        } else {
             run_scan(&data);
             printf("\n[*] Done scanning %s\n", data.target_ip);
         }
