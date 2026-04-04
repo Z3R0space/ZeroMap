@@ -407,8 +407,107 @@ void shodan_scan(const char *ip, int start_port, int end_port) {
     printf("\n[SHODAN] Passive scan complete. No packets sent to target.\n\n");
 }
 
+static void do_send_tun(scan_data_t *data, int thread_id, int *port_list, int port_count) {
+
+    srand((unsigned)time(NULL) ^ (unsigned)getpid() ^ (unsigned)(thread_id * 1337));
+
+    // IPPROTO_RAW - we supply full IP header
+    // kernel handles actual routing through tun0 automatically
+    int sock = socket(AF_INET, SOCK_RAW, IPPROTO_RAW);
+    if (sock < 0) {
+        perror("IPPROTO_RAW TX");
+        return;
+    }
+
+    // Tell kernel we're providing our own IP header
+    int one = 1;
+    setsockopt(sock, IPPROTO_IP, IP_HDRINCL, &one, sizeof(one));
+
+    // Get our tun0 source IP
+    char src_ip[16];
+    {
+        int fd = socket(AF_INET, SOCK_DGRAM, 0);
+        struct ifreq ifr;
+        memset(&ifr, 0, sizeof(ifr));
+        strncpy(ifr.ifr_name, TUN_IFACE, IFNAMSIZ - 1);
+        if (ioctl(fd, SIOCGIFADDR, &ifr) < 0) {
+            perror("tun0 IP ioctl");
+            close(fd);
+            close(sock);
+            return;
+        }
+        strcpy(src_ip, inet_ntoa(((struct sockaddr_in *)&ifr.ifr_addr)->sin_addr));
+        close(fd);
+    }
+
+    struct sockaddr_in dst = {0};
+    dst.sin_family = AF_INET;
+    dst.sin_addr.s_addr = inet_addr(data->target_ip);
+
+    int lstart = 0, lend = 0;
+    if (!port_list) {
+        int range = data->end_port - data->start_port + 1;
+        int ports_per_thread = range / TX_THREADS;
+        lstart = data->start_port + thread_id * ports_per_thread;
+        lend = (thread_id == TX_THREADS - 1) ? data->end_port : lstart + ports_per_thread - 1;
+    }
+    int total = port_list ? port_count : (lend - lstart + 1);
+
+    // Packet buffer
+    char pkt[sizeof(struct iphdr) + sizeof(struct tcphdr)];
+
+    for (int idx = 0; idx < total; idx++) {
+        int port = port_list ? port_list[idx] : (lstart + idx);
+
+        memset(pkt, 0, sizeof(pkt));
+        struct iphdr *iph = (struct iphdr *)pkt;
+        struct tcphdr *tcph = (struct tcphdr *)(pkt + sizeof(*iph));
+
+        // IP header
+        iph->ihl = 5;
+        iph->version = 4;
+        iph->tot_len = htons(sizeof(*iph) + sizeof(*tcph));
+        iph->ttl = 64;
+        iph->protocol = IPPROTO_TCP;
+        iph->saddr = inet_addr(src_ip);
+        iph->daddr = inet_addr(data->target_ip);
+        iph->check = checksum((unsigned short *)iph, sizeof(*iph));
+
+        // TCP header
+        tcph->source = htons(SRC_PORT);
+        tcph->dest = htons(port);
+        tcph->seq = htonl(rand());
+        tcph->doff = 5;
+        tcph->window = htons(1024);
+
+        switch (data->mode) {
+            case MODE_FIN: tcph->fin = 1; break;
+            case MODE_NULL: break;
+            case MODE_XMAS: tcph->fin = 1; tcph->psh = 1; tcph->urg = 1; break;
+            default: tcph->syn = 1; break; 
+        }
+
+        // Pseudo header
+        tcph->check = tcp_checksum(iph, tcph);
+
+        // Kernel routes this through tun automatically
+        sendto(sock, pkt, sizeof(pkt), 0, (struct sockaddr *)&dst, sizeof(dst));
+
+        data->syn_sent[port] = 1;
+        __sync_fetch_and_add(&packets_sent, 1);
+    }
+    close(sock);
+}
+
+
 static void do_send(scan_data_t *data, int thread_id,
                     int *port_list, int port_count) {
+
+    // TUN scan (no eth)
+    if (data->use_tun) {
+        do_send_tun(data, thread_id, port_list, port_count);
+        return;
+    }
 
     srand((unsigned)time(NULL) ^ (unsigned)getpid() ^ (unsigned)(thread_id * 1337));
 
