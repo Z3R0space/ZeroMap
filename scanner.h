@@ -8,6 +8,7 @@
 #define MAX_PORT       65535
 #define SRC_PORT       54321
 #define IFACE          "ens33"
+#define TUN_IFACE      "tun0"
 #define BATCH_SIZE     64
 #define TX_THREADS     4
 #define RX_GRACE       2
@@ -42,7 +43,7 @@ static const char *DECOY_IPS[MAX_DECOYS] = {
 #define SLOW_MAX_DELAY_US  50000
 
 // Shodan conf
-#define SHODAN_API_KEY  "YOUR_SHODAN_API_KEY_HERE"
+#define SHODAN_API_KEY  "XR6lTYiy9Ej2U8QDVRB0slhHImP7pV3g"
 void shodan_scan(const char *ip, int start_port, int end_port);
 
 // Shared data structure
@@ -56,6 +57,7 @@ typedef struct {
     int         start_port;
     int         end_port;
     int         use_decoy;
+    int         use_tun;
 } scan_data_t;
 
 typedef struct {
