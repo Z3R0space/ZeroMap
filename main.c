@@ -80,6 +80,7 @@ static void print_usage(const char *prog) {
     printf("  --xmas   XMAS scan – FIN+PSH+URG flags set\n");
     printf("  --frag   Frag scan – split SYN across two IP fragments\n");
     printf("  --slow   Slow scan – SYN with random inter-packet delay\n\n");
+    printf("  --tun    Tun scan  – Layer 3 scan that does not use ethernet\n");
 
     printf("Flags:\n");
     printf("  --decoy  Fire spoofed-IP burst before the real scan\n");
@@ -239,7 +240,7 @@ static void run_scan(scan_data_t *data) {
     threads_done = 0;
     all_sent     = 0;
 
-    if (data->use_decoy) {
+    if (data->use_decoy && !data->use_tun) {
         unsigned char src_mac[6], dst_mac[6];
         char src_ip[16];
         get_iface_info(src_mac, src_ip);
@@ -330,6 +331,11 @@ int main(int argc, char *argv[]) {
                 fprintf(stderr, "[-] Invalid port range: %s\n", argv[i]);
                 return 1;
             }
+            continue;
+        }
+
+        if (strcmp(argv[i], "--tun") == 0) {
+            data.use_tun = 1;
             continue;
         }
 
