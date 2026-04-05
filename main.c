@@ -179,10 +179,10 @@ static void retry_scan_eth(scan_data_t *data) {
     }
 
     if (retry_count == 0) {
-        printf("[*] Retry pass: nothing to retry.\n");
+        //printf("[*] Retry pass: nothing to retry.\n");
         free(retry_ports); return;
     }
-    printf("[*] Retry pass: re-scanning %d unresolved ports...\n", retry_count);
+    //printf("[*] Retry pass: re-scanning %d unresolved ports...\n", retry_count);
 
     threads_done = 0;
     all_sent     = 0;
@@ -226,11 +226,10 @@ static void retry_scan_tun(scan_data_t *data) {
     }
 
     if (retry_count == 0) {
-        printf("[*] Tun retry pass: nothing to retry.\n");
+        //printf("[*] Tun retry pass: nothing to retry.\n");
         free(retry_ports); return;
     }
-    printf("[*] Tun retry pass: re-scanning %d unresolved ports...\n",
-           retry_count);
+    //printf("[*] Tun retry pass: re-scanning %d unresolved ports...\n", retry_count);
 
     /* Reset coordination flags for the retry round */
     threads_done = 0;
