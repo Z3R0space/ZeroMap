@@ -99,6 +99,12 @@ By default ZeroMap uses `ens33`. If your interface is different (`eth0`, `wlan0`
 #define IFACE  "eth0"
 ```
 
+If you want to scan a host who is outside of your network via a VPN or VLAN like `tun0`, who's MAC is not stored in your local ARP table, then modify the interface here in `scanner.h`:
+
+```c
+#define TUN_IFACE "tun0"
+```
+
 ---
 
 ## Usage
@@ -107,6 +113,7 @@ By default ZeroMap uses `ens33`. If your interface is different (`eth0`, `wlan0`
 Usage:
   sudo ./zeromap <target-IP> [--ports <range>] [--mode] [--decoy] [--shodan]
   sudo ./zeromap --file <targets.txt> [--ports <range>] [--mode] [--decoy] [--shodan]
+  sudo ./zeromap <target-IP> --tun [--mode] [--decoy] (FOR SCANNING HOST OUTSIDE YOUR NETWORK)
 ```
 
 ### Options
@@ -122,6 +129,7 @@ Usage:
 | `--xmas` | XMAS scan (FIN + PSH + URG) |
 | `--frag` | Fragmented SYN scan |
 | `--slow` | Slow SYN scan with random delays |
+| `--tun` | TUN scan used for host outside the network |
 | `--decoy` | Fire spoofed-IP burst before the real scan (combinable) |
 | `--shodan` | Passive Shodan lookup only — zero packets sent to target |
 
@@ -138,6 +146,9 @@ sudo ./zeromap 192.168.1.1 --ports 1-1024
 
 # XMAS scan on a port range
 sudo ./zeromap 192.168.1.1 --ports 1-1024 --xmas
+
+# TUN scan used for CTFs or Host outside the network connected via VPN or VLAN or WLAN
+sudo ./zeromap 192.168.1.1 --tun
 
 # SYN scan with a decoy burst to bury your real IP
 sudo ./zeromap 192.168.1.1 --decoy
