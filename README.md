@@ -16,7 +16,6 @@
 
 ![Platform](https://img.shields.io/badge/platform-Linux-blue?style=flat-square)
 ![Language](https://img.shields.io/badge/language-C-orange?style=flat-square)
-![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)
 ![Root](https://img.shields.io/badge/requires-root-red?style=flat-square)
 
 </div>
