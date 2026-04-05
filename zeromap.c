@@ -449,7 +449,7 @@ void *send_thread_tun(void *arg) {
 
     tun_send_ports(data, NULL, 0);   /* NULL = sequential full range */
 
-    printf("[*] All TX done (tun). Total sent: %lu\n", packets_sent);
+    //printf("[*] All TX done (tun). Total sent: %lu\n", packets_sent);
     threads_done = TX_THREADS;       /* satisfy the global counter check */
     all_sent     = 1;
     return NULL;
@@ -462,7 +462,7 @@ void *send_thread_tun_retry(void *arg) {
 
     tun_send_ports(data, args->port_list, args->port_count);
 
-    printf("[*] Retry TX done (tun). Total sent: %lu\n", packets_sent);
+    //printf("[*] Retry TX done (tun). Total sent: %lu\n", packets_sent);
     threads_done = TX_THREADS;
     all_sent     = 1;
     return NULL;
@@ -578,8 +578,7 @@ static void do_send(scan_data_t *data, int thread_id,
     double elapsed = (t1.tv_sec - t0.tv_sec)
                    + (t1.tv_nsec - t0.tv_nsec) / 1e9;
     if (!port_list)
-        printf("[TX %d] sent %lu packets in %.2fs\n",
-               thread_id, local_sent, elapsed);
+        printf("[TX %d] sent %lu packets in %.2fs\n", thread_id, local_sent, elapsed);
 
     close(sock);
 }
@@ -593,7 +592,7 @@ void *send_thread(void *arg) {
     do_send(data, thread_id, args->port_list, args->port_count);
 
     if (__sync_add_and_fetch(&threads_done, 1) == total_threads) {
-        printf("[*] All TX threads done. Total sent: %lu\n", packets_sent);
+        //printf("[*] All TX threads done. Total sent: %lu\n", packets_sent);
         all_sent = 1;
     }
     return NULL;
@@ -649,8 +648,8 @@ static void *recv_thread_tun(void *arg) {
         if (tcph->syn && tcph->ack) {
             if (!data->open_ports[port]) {
                 data->open_ports[port] = 1;
-                printf("[OPEN] %d - %s\n",
-                       port, identify_service(port, "tcp"));
+                printf("\033[1;32m[OPEN] %s:%d - %s\033[0m\n",
+                       data->target_ip, port, identify_service(port, "tcp"));
                 fflush(stdout);
             }
             if (all_sent && grace_start != 0)
@@ -687,8 +686,8 @@ check_grace_tun:
                 if (data->syn_sent[p]
                  && !data->closed_ports[p]
                  && !data->open_ports[p]) {
-                    printf("[OPEN|FILTERED] %d - %s\n",
-                           p, identify_service(p, "tcp"));
+                    printf("\033[1;32m[OPEN|FILTERED] %s:%d - %s\033[0m\n",
+                           data->target_ip, p, identify_service(p, "tcp"));
                     fflush(stdout);
                     found++;
                 }
@@ -751,7 +750,7 @@ void *recv_thread(void *arg) {
         if (tcph->syn && tcph->ack) {
             if (!data->open_ports[port]) {
                 data->open_ports[port] = 1;
-                printf("[OPEN] %d - %s\n", port, identify_service(port, "tcp"));
+                printf("\033[1;32m[OPEN] %s:%d - %s\033[0m\n", data->target_ip, port, identify_service(port, "tcp"));
                 fflush(stdout);
             }
             if (all_sent && grace_start != 0) grace_start = time(NULL);
@@ -786,8 +785,8 @@ check_grace:
                 if (data->syn_sent[p]
                  && !data->closed_ports[p]
                  && !data->open_ports[p]) {
-                    printf("[OPEN|FILTERED] %d - %s\n",
-                           p, identify_service(p, "tcp"));
+                    printf("\033[1;32m[OPEN|FILTERED] %s:%d - %s\033[0m\n",
+                           data->target_ip, p, identify_service(p, "tcp"));
                     fflush(stdout);
                     found++;
                 }
