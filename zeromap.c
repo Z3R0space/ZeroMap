@@ -24,6 +24,25 @@ volatile int threads_done = 0;
 volatile int all_sent     = 0;
 static volatile unsigned long packets_sent = 0;
 
+// DECOY PROFILE
+typedef struct {
+    const char *ip;
+    uint8_t     ttl;          // OS-realistic: Linux=64, Windows=128, Cisco=255
+    int         pkt_count;    // randomised at runtime
+    uint16_t    ip_id_base;   // per-host IP ID counter
+} decoy_host_t;
+
+// Uniform random int in [lo, hi]
+static inline int rand_range(int lo, int hi) {
+    return lo + rand() % (hi - lo + 1);
+}
+
+// Microsecond sleep with ±jitter_us randomness around base_us
+static void jitter_sleep(int base_us, int jitter_us) {
+    int delay = base_us + rand_range(-jitter_us, jitter_us);
+    if (delay > 0) usleep((useconds_t)delay);
+}
+
 // CHECKSUM HELPERS
 unsigned short checksum(unsigned short *ptr, int nbytes) {
     long sum = 0;
@@ -110,10 +129,12 @@ static const char *identify_service(int port, const char *proto) {
 }
 
 // PACKET BUILDER - build raw packets to avoid kernel overhead (ethernet only)
+// src_port is now a parameter instead of the hardcoded SRC_PORT #define
 void build_packet(char *buffer,
                   const char *src_ip, const char *dst_ip,
                   unsigned char *src_mac, unsigned char *dst_mac,
-                  int port, scan_mode_t mode) {
+                  int port, scan_mode_t mode,
+                  uint16_t src_port) {
 
     memset(buffer, 0, 1500);
 
@@ -134,7 +155,7 @@ void build_packet(char *buffer,
     iph->daddr    = inet_addr(dst_ip);
     iph->check    = checksum((unsigned short *)iph, sizeof(*iph));
 
-    tcph->source = htons(SRC_PORT);
+    tcph->source = htons(src_port);   // was htons(SRC_PORT)
     tcph->dest   = htons(port);
     tcph->seq    = htonl(rand());
     tcph->doff   = 5;
@@ -150,10 +171,67 @@ void build_packet(char *buffer,
     tcph->check = tcp_checksum(iph, tcph);
 }
 
+// Builds a SYN packet using per-decoy TTL and incrementing IP ID
+static void build_decoy_packet(char              *pkt,
+                               decoy_host_t      *host,
+                               const char        *dst_ip,
+                               unsigned char     *src_mac,
+                               unsigned char     *dst_mac,
+                               uint16_t           sport,
+                               uint16_t           dport)
+{
+    memset(pkt, 0, 1500);
+
+    // ETHERNET
+    struct ether_header *eth = (struct ether_header *)pkt;
+    memcpy(eth->ether_shost, src_mac, ETH_ALEN);
+    memcpy(eth->ether_dhost, dst_mac, ETH_ALEN);
+    eth->ether_type = htons(ETHERTYPE_IP);
+
+    // IP ADDR
+    struct iphdr *iph = (struct iphdr *)(pkt + sizeof(struct ether_header));
+    iph->version  = 4;
+    iph->ihl      = 5;
+    iph->tos      = 0;
+    iph->tot_len  = htons(sizeof(struct iphdr) + sizeof(struct tcphdr));
+    iph->id       = htons(host->ip_id_base++);   // per-host monotonic counter
+    iph->frag_off = 0;
+    iph->ttl      = host->ttl;                   // OS-realistic TTL
+    iph->protocol = IPPROTO_TCP;
+    iph->saddr    = inet_addr(host->ip);
+    iph->daddr    = inet_addr(dst_ip);
+    iph->check    = 0;  // let the kernel fill this, or call ip_checksum()
+
+    // TCP
+    struct tcphdr *tcph = (struct tcphdr *)((char *)iph + sizeof(struct iphdr));
+    tcph->source  = htons(sport);
+    tcph->dest    = htons(dport);
+    tcph->seq     = htonl(rand());               // random ISN per packet
+    tcph->ack_seq = 0;
+    tcph->doff    = 5;
+    tcph->syn     = 1;
+    tcph->window  = htons(rand_range(8192, 65535)); // realistic window size
+    tcph->check   = 0;
+}
+
 // DECOY BURST - Uses 5 different IPs to burst packets from
-void send_decoy_burst(scan_data_t *data,
+void send_decoy_burst(scan_data_t   *data,
                       unsigned char *src_mac,
-                      unsigned char *dst_mac) {
+                      unsigned char *dst_mac)
+{
+    srand((unsigned)time(NULL));
+
+    // Per-decoy profiles: different TTLs simulate different OS / hop counts.
+    // Packet counts are randomised below so no host fires a round number.
+    decoy_host_t decoys[MAX_DECOYS];
+    uint8_t os_ttls[] = {64, 128, 255, 64, 128};  // Linux, Windows, Cisco…
+
+    for (int d = 0; d < MAX_DECOYS; d++) {
+        decoys[d].ip         = DECOY_IPS[d];
+        decoys[d].ttl        = os_ttls[d % (sizeof(os_ttls))];
+        decoys[d].pkt_count  = rand_range(60, 180);   // not a round number
+        decoys[d].ip_id_base = (uint16_t)rand();      // random start per host
+    }
 
     int sock = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
     if (sock < 0) { perror("decoy socket"); return; }
@@ -165,31 +243,61 @@ void send_decoy_burst(scan_data_t *data,
     memcpy(addr.sll_addr, dst_mac, 6);
 
     char pkt[1500];
-    printf("[DECOY] Sending decoy bursts from %d fake IPs...\n", MAX_DECOYS);
 
-    for (int d = 0; d < MAX_DECOYS; d++) {
-        for (int i = 0; i < 100; i++) {
-            int fake_port = (rand() % 64512) + 1024;
-            build_packet(pkt, DECOY_IPS[d], data->target_ip,
-                         src_mac, dst_mac, fake_port, MODE_SYN);
+    // ── Calculate total iterations for round-robin ────────────────────────
+    int max_count = 0;
+    for (int d = 0; d < MAX_DECOYS; d++)
+        if (decoys[d].pkt_count > max_count)
+            max_count = decoys[d].pkt_count;
+
+    printf("[DECOY] Sending interleaved decoy traffic (%d hosts)...\n",
+           MAX_DECOYS);
+
+    // ── Round-robin loop: one packet per decoy per iteration ──────────────
+    // This prevents the sequential-burst clustering giveaway.
+    for (int i = 0; i < max_count; i++) {
+        for (int d = 0; d < MAX_DECOYS; d++) {
+
+            // Skip hosts that have already hit their (random) quota
+            if (i >= decoys[d].pkt_count) continue;
+
+            // Random source port for this packet
+            uint16_t sport = (uint16_t)rand_range(1024, 65535);
+
+            // Slightly vary destination port per decoy so flows don't align.
+            int range_size = data->end_port - data->start_port + 1;
+            uint16_t dport = (uint16_t)(data->start_port + rand_range(0, range_size - 1));
+
+            build_decoy_packet(pkt, &decoys[d], data->target_ip,
+                               src_mac, dst_mac, sport, dport);
+
             size_t pkt_len = sizeof(struct ether_header)
                            + sizeof(struct iphdr)
                            + sizeof(struct tcphdr);
+
             sendto(sock, pkt, pkt_len, 0,
                    (struct sockaddr *)&addr, sizeof(addr));
+
+            // Per-packet jitter: 800µs base ± 400µs  → 0.4–1.2 ms
+            jitter_sleep(800, 400);
         }
-        printf("[DECOY]  Burst from %s done\n", DECOY_IPS[d]);
+
+        // Occasional inter-round pause to mimic real bursty host behaviour
+        if (i > 0 && i % rand_range(15, 25) == 0)
+            jitter_sleep(5000, 2000);  // ~3–7 ms pause
     }
 
     close(sock);
-    printf("[DECOY] Decoy burst complete. Starting real scan...\n");
+    printf("[DECOY] Decoy phase complete. Starting real scan...\n");
 }
 
-// FRAGMENT SENDER - send fragments when '--frag' option is used 
+// FRAGMENT SENDER - send fragments when '--frag' option is used
+// src_port is now a parameter instead of the hardcoded SRC_PORT #define
 static void send_fragment(int sock, struct sockaddr_ll *addr,
                            const char *src_ip, const char *dst_ip,
                            unsigned char *src_mac, unsigned char *dst_mac,
-                           int port, uint16_t ip_id) {
+                           int port, uint16_t ip_id,
+                           uint16_t src_port) {
 
     char frag1[sizeof(struct ether_header) + sizeof(struct iphdr) + 8];
     memset(frag1, 0, sizeof(frag1));
@@ -213,7 +321,8 @@ static void send_fragment(int sock, struct sockaddr_ll *addr,
     char full_tcp[20];
     struct tcphdr *tcp = (struct tcphdr *)full_tcp;
     memset(full_tcp, 0, 20);
-    tcp->source = htons(SRC_PORT); tcp->dest = htons(port);
+    tcp->source = htons(src_port);   // was htons(SRC_PORT)
+    tcp->dest   = htons(port);
     tcp->seq    = htonl(rand());   tcp->doff = 5;
     tcp->syn    = 1;               tcp->window = htons(1024);
     tcp->check  = tcp_checksum(ip1, tcp);
@@ -387,6 +496,9 @@ static void tun_send_ports(scan_data_t *data,
     int is_stealth = (data->mode == MODE_FIN  ||
                       data->mode == MODE_NULL ||
                       data->mode == MODE_XMAS);
+
+    // Stealth scans use a larger per-batch pause so the target's RST
+    // rate-limit bucket doesn't overflow and drop replies silently.
     long pause_us = is_stealth ? TUN_STEALTH_BATCH_PAUSE : TUN_BATCH_PAUSE_US;
 
     char pkt[sizeof(struct iphdr) + sizeof(struct tcphdr)];
@@ -412,7 +524,7 @@ static void tun_send_ports(scan_data_t *data,
         iph->daddr    = inet_addr(data->target_ip);
         iph->check    = checksum((unsigned short *)iph, sizeof(*iph));
 
-        tcph->source = htons(SRC_PORT);
+        tcph->source = htons(data->src_port);   // was htons(SRC_PORT)
         tcph->dest   = htons(port);
         tcph->seq    = htonl(rand());
         tcph->doff   = 5;
@@ -449,7 +561,6 @@ void *send_thread_tun(void *arg) {
 
     tun_send_ports(data, NULL, 0);   /* NULL = sequential full range */
 
-    //printf("[*] All TX done (tun). Total sent: %lu\n", packets_sent);
     threads_done = TX_THREADS;       /* satisfy the global counter check */
     all_sent     = 1;
     return NULL;
@@ -462,13 +573,12 @@ void *send_thread_tun_retry(void *arg) {
 
     tun_send_ports(data, args->port_list, args->port_count);
 
-    //printf("[*] Retry TX done (tun). Total sent: %lu\n", packets_sent);
     threads_done = TX_THREADS;
     all_sent     = 1;
     return NULL;
 }
 
-// Ethernet TX (multi-threaded, unchanged)
+// Ethernet TX (multi-threaded)
 static void do_send(scan_data_t *data, int thread_id,
                     int *port_list, int port_count) {
 
@@ -504,8 +614,10 @@ static void do_send(scan_data_t *data, int thread_id,
         uint16_t ip_id = (uint16_t)(rand() & 0xFFFF);
         for (int idx = 0; idx < total; idx++) {
             int port = port_list ? port_list[idx] : (start_port + idx);
+            // pass data->src_port through to the fragment builder
             send_fragment(sock, &addr, src_ip, data->target_ip,
-                          src_mac, dst_mac, port, ip_id++);
+                          src_mac, dst_mac, port, ip_id++,
+                          data->src_port);
             data->syn_sent[port] = 1;
             __sync_fetch_and_add(&packets_sent, 2);
         }
@@ -520,7 +632,8 @@ static void do_send(scan_data_t *data, int thread_id,
         for (int idx = 0; idx < total; idx++) {
             int port = port_list ? port_list[idx] : (start_port + idx);
             build_packet(pkt, src_ip, data->target_ip,
-                         src_mac, dst_mac, port, data->mode);
+                         src_mac, dst_mac, port, data->mode,
+                         data->src_port);
             sendto(sock, pkt, pkt_len, 0,
                    (struct sockaddr *)&addr, sizeof(addr));
             data->syn_sent[port] = 1;
@@ -542,11 +655,16 @@ static void do_send(scan_data_t *data, int thread_id,
     struct timespec t0, t1;
     clock_gettime(CLOCK_MONOTONIC, &t0);
 
+    int is_stealth = (data->mode == MODE_FIN  ||
+                      data->mode == MODE_NULL ||
+                      data->mode == MODE_XMAS);
+
     for (int idx = 0; idx < total; idx++) {
         int port = port_list ? port_list[idx] : (start_port + idx);
 
         build_packet(packets[sent], src_ip, data->target_ip,
-                     src_mac, dst_mac, port, data->mode);
+                     src_mac, dst_mac, port, data->mode,
+                     data->src_port);   // was SRC_PORT
 
         iov[sent].iov_base = packets[sent];
         iov[sent].iov_len  = sizeof(struct ether_header)
@@ -564,10 +682,10 @@ static void do_send(scan_data_t *data, int thread_id,
 
         if (sent == BATCH_SIZE || idx == total - 1) {
             sendmmsg(sock, msgs, sent, 0);
-            if (data->mode == MODE_FIN  ||
-                data->mode == MODE_NULL ||
-                data->mode == MODE_XMAS)
-                usleep(5000);
+            // Stealth scans use a larger inter-batch pause (25ms vs 5ms)
+            // to avoid flooding the target's RST rate-limit bucket.
+            if (is_stealth)
+                usleep(9000);
             local_sent += sent;
             __sync_fetch_and_add(&packets_sent, sent);
             sent = 0;
@@ -592,7 +710,6 @@ void *send_thread(void *arg) {
     do_send(data, thread_id, args->port_list, args->port_count);
 
     if (__sync_add_and_fetch(&threads_done, 1) == total_threads) {
-        //printf("[*] All TX threads done. Total sent: %lu\n", packets_sent);
         all_sent = 1;
     }
     return NULL;
@@ -617,6 +734,11 @@ static void *recv_thread_tun(void *arg) {
                       data->mode == MODE_NULL ||
                       data->mode == MODE_XMAS);
 
+    // Stealth scans need a longer grace window; without it the RX loop
+    // exits before late RSTs arrive and reports every unresolved port as
+    // open|filtered.
+    int grace_limit = is_stealth ? (RX_GRACE_STEALTH + 3) : TUN_RX_GRACE;
+
     unsigned long rst_count  = 0;
     time_t        grace_start = 0;
 
@@ -639,7 +761,8 @@ static void *recv_thread_tun(void *arg) {
         if ((char *)tcph + sizeof(*tcph) > buf + len) goto check_grace_tun;
 
         if (iph->saddr != inet_addr(data->target_ip)) goto check_grace_tun;
-        if (ntohs(tcph->dest) != SRC_PORT)             goto check_grace_tun;
+        // Filter by the runtime source port, not the compile-time #define
+        if (ntohs(tcph->dest) != data->src_port)       goto check_grace_tun;
 
         int port = ntohs(tcph->source);
         if (port < 1 || port > MAX_PORT)  goto check_grace_tun;
@@ -667,8 +790,17 @@ static void *recv_thread_tun(void *arg) {
 
 check_grace_tun:
         if (all_sent) {
-            if (grace_start == 0) grace_start = time(NULL);
-            else if (time(NULL) - grace_start > TUN_RX_GRACE) break;
+            // For stealth scans don't start the grace countdown until we've
+            // seen at least one RST — this proves the target is actually
+            // responding. Starting before that would let a 2-second window
+            // close before the slower RST stream arrives.
+            int ready = !is_stealth || (rst_count > 0);
+
+            if (grace_start == 0 && ready)
+                grace_start = time(NULL);
+            else if (grace_start != 0 &&
+                     time(NULL) - grace_start > grace_limit)
+                break;
         }
     }
 
@@ -679,7 +811,7 @@ check_grace_tun:
                    "firewall is dropping replies.\n");
             printf("[!] Try raising TUN_STEALTH_BATCH_PAUSE in scanner.c\n");
             printf("[!] tcpdump -i %s 'tcp[tcpflags] & tcp-rst != 0 "
-                   "and dst port %d'\n", TUN_IFACE, SRC_PORT);
+                   "and dst port %d'\n", TUN_IFACE, data->src_port);
         } else {
             int found = 0;
             for (int p = data->start_port; p <= data->end_port; p++) {
@@ -700,7 +832,7 @@ check_grace_tun:
     return NULL;
 }
 
-// Ethernet RX thread 
+// Ethernet RX thread
 void *recv_thread(void *arg) {
     scan_data_t *data = (scan_data_t *)arg;
     if (data->use_tun) return recv_thread_tun(arg);
@@ -718,6 +850,10 @@ void *recv_thread(void *arg) {
     int is_stealth = (data->mode == MODE_FIN  ||
                       data->mode == MODE_NULL ||
                       data->mode == MODE_XMAS);
+
+    // Stealth scans need a longer grace window to collect late RSTs.
+    int grace_limit = is_stealth ? RX_GRACE_STEALTH : RX_GRACE;
+
     unsigned long rst_count = 0;
     struct sockaddr_ll saddr;
     socklen_t saddr_len = sizeof(saddr);
@@ -741,7 +877,8 @@ void *recv_thread(void *arg) {
         if ((char *)tcph + sizeof(*tcph) > buf + len) goto check_grace;
 
         if (iph->saddr != inet_addr(data->target_ip)) goto check_grace;
-        if (ntohs(tcph->dest) != SRC_PORT)            goto check_grace;
+        // Filter by the runtime source port, not the compile-time #define
+        if (ntohs(tcph->dest) != data->src_port)      goto check_grace;
 
         int port = ntohs(tcph->source);
         if (port < 1 || port > MAX_PORT)   goto check_grace;
@@ -765,8 +902,17 @@ void *recv_thread(void *arg) {
 
 check_grace:
         if (all_sent) {
-            if (grace_start == 0) grace_start = time(NULL);
-            else if (time(NULL) - grace_start > RX_GRACE) break;
+            // For stealth scans don't start the grace countdown until we've
+            // confirmed the target is sending RSTs. If we start the timer
+            // before any RST has arrived we'll almost always time out too
+            // early and report every closed port as open|filtered.
+            int ready = !is_stealth || (rst_count > 0);
+
+            if (grace_start == 0 && ready)
+                grace_start = time(NULL);
+            else if (grace_start != 0 &&
+                     time(NULL) - grace_start > grace_limit)
+                break;
         }
     }
 
@@ -778,7 +924,7 @@ check_grace:
             printf("[!]   - Target is Windows (FIN/NULL/XMAS don't work against it)\n");
             printf("[!]   - Firewall is blocking/dropping all replies\n");
             printf("[!]   - Run: tcpdump -i %s 'tcp[tcpflags] & tcp-rst != 0 "
-                   "and dst port %d' to verify\n", IFACE, SRC_PORT);
+                   "and dst port %d' to verify\n", IFACE, data->src_port);
         } else {
             int found = 0;
             for (int p = data->start_port; p <= data->end_port; p++) {
