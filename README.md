@@ -126,6 +126,7 @@ Usage:
 | `--fin` | FIN scan |
 | `--null` | NULL scan (no TCP flags) |
 | `--xmas` | XMAS scan (FIN + PSH + URG) |
+| `--source-port` | Source Port Manipulation |
 | `--frag` | Fragmented SYN scan |
 | `--slow` | Slow SYN scan with random delays |
 | `--tun` | TUN scan used for host outside the network |
@@ -181,6 +182,9 @@ Sends a packet with no TCP flags set at all. Detection logic is identical to FIN
 
 ### XMAS scan (`--xmas`)
 Sets FIN, PSH, and URG simultaneously — lights the packet up like a Christmas tree. Same open/closed detection logic as FIN and NULL.
+
+### Source Port Manipulation (`--source-port`)
+Set a source port to evade defensive systems which allow requests from a particular port without monitoring them.
 
 ### Fragmented SYN (`--frag`)
 Splits a single SYN across two IP fragments. Older stateless firewalls that only inspect the first fragment may pass both fragments through, allowing the target's TCP stack to reassemble and respond.
