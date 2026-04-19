@@ -42,6 +42,7 @@ static void print_banner(void) {
     printf("   ███╔╝  ██╔══╝  ██╔══██╗██║   ██║██║╚██╔╝██║██╔══██║██╔═══╝ \n");
     printf("  ███████╗███████╗██║  ██║╚██████╔╝██║ ╚═╝ ██║██║  ██║██║     \n");
     printf("  ╚══════╝╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚═╝     ╚═╝╚═╝  ╚═╝╚═╝     \n");
+    printf("~# By Z3R0");
     printf("\033[0m");
     printf("\033[0;36m");
     printf("Z E R O M A P  —  G o d s p e e d  E d i t i o n\n");
@@ -81,13 +82,16 @@ static void print_usage(const char *prog) {
     printf("  --tun    Tun scan  – Layer 3 scan via tun0 (VPN/HTB targets)\n\n");
 
     printf("Flags:\n");
-    printf("  --decoy  Fire spoofed-IP burst before the real scan\n");
-    printf("  --shodan Passive Shodan lookup only (no packets sent)\n\n");
+    printf("  --source-port <n>  TCP source port for outgoing packets (default: random)\n");
+    printf("  --decoy            Fire spoofed-IP burst before the real scan\n");
+    printf("  --shodan           Passive Shodan lookup only (no packets sent)\n\n");
 
     printf("Examples:\n");
     printf("  %s 192.168.1.1\n", prog);
     printf("  %s 192.168.1.1 --ports 1-1024 --xmas\n", prog);
     printf("  %s 192.168.1.1 --slow --decoy\n", prog);
+    printf("  %s 192.168.1.1 --source-port 12345\n", prog);
+    printf("  %s 192.168.1.1 --ports 1-1024 --fin --source-port 9999\n", prog);
     printf("  %s 192.168.1.1 --shodan --ports 1-1024\n", prog);
     printf("  %s 10.10.10.5 --tun\n", prog);
     printf("  %s 10.10.10.5 --tun --fin --ports 1-1024\n", prog);
@@ -101,7 +105,7 @@ static void print_usage(const char *prog) {
     printf("  172.16.0.99\n\n");
 }
 
-// PARSE MODE - Parses mode from user input
+// PARSE MODE
 static int parse_mode(const char *arg, scan_mode_t *out) {
     if (strcmp(arg, "--syn")  == 0) { *out = MODE_SYN;  return 0; }
     if (strcmp(arg, "--fin")  == 0) { *out = MODE_FIN;  return 0; }
@@ -112,7 +116,7 @@ static int parse_mode(const char *arg, scan_mode_t *out) {
     return -1;
 }
 
-// MODE NAME - Chooses the mode as per user input
+// MODE NAME
 static const char *mode_name(scan_mode_t m) {
     switch (m) {
         case MODE_SYN:   return "SYN (half-open)";
@@ -126,7 +130,7 @@ static const char *mode_name(scan_mode_t m) {
     }
 }
 
-// PARSE PORT RANGE - Parses port range from user input
+// PARSE PORT RANGE
 static int parse_port_range(const char *arg, int *start, int *end) {
     char *dash = strchr(arg, '-');
     if (dash) { *start = atoi(arg); *end = atoi(dash + 1); }
@@ -135,7 +139,7 @@ static int parse_port_range(const char *arg, int *start, int *end) {
     return 0;
 }
 
-// LOAD TARGETS - Loads target file with multiple IPs given by user
+// LOAD TARGETS
 static char **load_targets(const char *path, int *count) {
     FILE *fp = fopen(path, "r");
     if (!fp) { perror("[-] Cannot open target file"); return NULL; }
@@ -165,10 +169,21 @@ static char **load_targets(const char *path, int *count) {
     return ips;
 }
 
-// retry_scan_eth  — Ethernet retry (multi-threaded, port list)
+// retry_scan_eth — Ethernet retry (multi-threaded, port list)
 static void retry_scan_eth(scan_data_t *data) {
     int *retry_ports = malloc((MAX_PORT + 1) * sizeof(int));
     if (!retry_ports) { perror("malloc retry_ports"); return; }
+
+    // Stealth scans: open|filtered is the correct final answer for ports that
+    // sent no RST back. Retrying them would re-probe open ports that will
+    // never reply with anything, causing rst_count to stay 0 forever,
+    // grace_start to never be set, and the RX thread to hang indefinitely.
+    if (data->mode == MODE_FIN  ||
+        data->mode == MODE_NULL ||
+        data->mode == MODE_XMAS) {
+        free(retry_ports);
+        return;
+    }
 
     int retry_count = 0;
     for (int p = data->start_port; p <= data->end_port; p++) {
@@ -179,10 +194,8 @@ static void retry_scan_eth(scan_data_t *data) {
     }
 
     if (retry_count == 0) {
-        //printf("[*] Retry pass: nothing to retry.\n");
         free(retry_ports); return;
     }
-    //printf("[*] Retry pass: re-scanning %d unresolved ports...\n", retry_count);
 
     threads_done = 0;
     all_sent     = 0;
@@ -212,10 +225,19 @@ static void retry_scan_eth(scan_data_t *data) {
     free(retry_ports);
 }
 
-// retry_scan_tun  — tun retry (single-threaded, port list)
+// retry_scan_tun — tun retry (single-threaded, port list)
 static void retry_scan_tun(scan_data_t *data) {
     int *retry_ports = malloc((MAX_PORT + 1) * sizeof(int));
     if (!retry_ports) { perror("malloc retry_ports_tun"); return; }
+
+    // Same guard as retry_scan_eth: stealth open|filtered ports never reply,
+    // so retrying them hangs the RX thread waiting for RSTs that won't come.
+    if (data->mode == MODE_FIN  ||
+        data->mode == MODE_NULL ||
+        data->mode == MODE_XMAS) {
+        free(retry_ports);
+        return;
+    }
 
     int retry_count = 0;
     for (int p = data->start_port; p <= data->end_port; p++) {
@@ -226,20 +248,12 @@ static void retry_scan_tun(scan_data_t *data) {
     }
 
     if (retry_count == 0) {
-        //printf("[*] Tun retry pass: nothing to retry.\n");
         free(retry_ports); return;
     }
-    //printf("[*] Tun retry pass: re-scanning %d unresolved ports...\n", retry_count);
 
-    /* Reset coordination flags for the retry round */
     threads_done = 0;
     all_sent     = 0;
 
-    /*
-     * tx_args_t carries the port list to send_thread_tun_retry.
-     * thread_id / total_threads are unused by the tun sender but we fill
-     * them for consistency.
-     */
     tx_args_t retry_args = {
         .data          = data,
         .thread_id     = 0,
@@ -250,8 +264,7 @@ static void retry_scan_tun(scan_data_t *data) {
 
     pthread_t rx, tx;
 
-    // RX starts first — same ordering as the initial tun scan
-    pthread_create(&rx, NULL, recv_thread,          data);
+    pthread_create(&rx, NULL, recv_thread,           data);
     pthread_create(&tx, NULL, send_thread_tun_retry, &retry_args);
 
     pthread_join(tx, NULL);
@@ -268,15 +281,7 @@ static void run_scan(scan_data_t *data) {
     threads_done = 0;
     all_sent     = 0;
 
-    if (data->use_decoy && !data->use_tun) {
-        unsigned char src_mac[6], dst_mac[6];
-        char src_ip[16];
-        get_iface_info(src_mac, src_ip);
-        get_target_mac(data->target_ip, dst_mac);
-        send_decoy_burst(data, src_mac, dst_mac);
-    }
-
-    /* TUN path  */
+    /* TUN path */
     if (data->use_tun) {
         pthread_t rx, tx;
         pthread_create(&rx, NULL, recv_thread,     data);
@@ -284,7 +289,6 @@ static void run_scan(scan_data_t *data) {
         pthread_join(tx, NULL);
         pthread_join(rx, NULL);
 
-        /* Retry pass: re-probe ports the RX buffer dropped */
         struct timespec delay = { 0, RETRY_DELAY_MS * 1000000L };
         nanosleep(&delay, NULL);
         retry_scan_tun(data);
@@ -317,7 +321,7 @@ static void run_scan(scan_data_t *data) {
 #endif
 }
 
-// MAIN - Takes arguments, setup memory, setup flags, calls corresponding functions
+// MAIN
 int main(int argc, char *argv[]) {
     print_banner();
 
@@ -333,6 +337,7 @@ int main(int argc, char *argv[]) {
     data.end_port   = MAX_PORT;
     data.use_decoy  = 0;
     data.use_tun    = 0;
+    data.src_port   = SRC_PORT;
 
     const char *target_file = NULL;
     int         use_shodan  = 0;
@@ -360,9 +365,22 @@ int main(int argc, char *argv[]) {
             }
             continue;
         }
-        if (strcmp(argv[i], "--tun")    == 0) { data.use_tun  = 1; continue; }
-        if (strcmp(argv[i], "--decoy")  == 0) { data.use_decoy= 1; continue; }
-        if (strcmp(argv[i], "--shodan") == 0) { use_shodan    = 1; continue; }
+
+        if (strcmp(argv[i], "--source-port") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "[-] --source-port requires an argument\n"); return 1;
+            }
+            int sp = atoi(argv[++i]);
+            if (sp < 1 || sp > 65535) {
+                fprintf(stderr, "[-] --source-port must be between 1 and 65535\n"); return 1;
+            }
+            data.src_port = (uint16_t)sp;
+            continue;
+        }
+
+        if (strcmp(argv[i], "--tun")    == 0) { data.use_tun   = 1; continue; }
+        if (strcmp(argv[i], "--decoy")  == 0) { data.use_decoy = 1; continue; }
+        if (strcmp(argv[i], "--shodan") == 0) { use_shodan     = 1; continue; }
 
         scan_mode_t m;
         if (parse_mode(argv[i], &m) == 0) { data.mode = m; continue; }
@@ -379,6 +397,7 @@ int main(int argc, char *argv[]) {
            data.use_tun ? "1 TX + 1 RX (tun), retry enabled"
                         : "4 TX + 1 RX (eth), retry enabled");
     printf("[*] Ports   : %d – %d\n", data.start_port, data.end_port);
+    printf("[*] Src port: %d\n", data.src_port);
     if (use_shodan)
         printf("[*] Method  : Shodan passive (no packets sent to target)\n");
     printf("\n");
