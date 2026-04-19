@@ -42,7 +42,7 @@ static void print_banner(void) {
     printf("   ███╔╝  ██╔══╝  ██╔══██╗██║   ██║██║╚██╔╝██║██╔══██║██╔═══╝ \n");
     printf("  ███████╗███████╗██║  ██║╚██████╔╝██║ ╚═╝ ██║██║  ██║██║     \n");
     printf("  ╚══════╝╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚═╝     ╚═╝╚═╝  ╚═╝╚═╝     \n");
-    printf("~# By Z3R0");
+    printf("~# By Z3R0"\n);
     printf("\033[0m");
     printf("\033[0;36m");
     printf("Z E R O M A P  —  G o d s p e e d  E d i t i o n\n");
