@@ -397,7 +397,6 @@ int main(int argc, char *argv[]) {
            data.use_tun ? "1 TX + 1 RX (tun), retry enabled"
                         : "4 TX + 1 RX (eth), retry enabled");
     printf("[*] Ports   : %d – %d\n", data.start_port, data.end_port);
-    printf("[*] Src port: %d\n", data.src_port);
     if (use_shodan)
         printf("[*] Method  : Shodan passive (no packets sent to target)\n");
     printf("\n");
