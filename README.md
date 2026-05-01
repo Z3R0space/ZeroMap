@@ -79,7 +79,7 @@ cd ZeroMap
 sudo apt install libcurl4-openssl-dev libcjson-dev
 
 # Or manually
-gcc -O2 -Wall -D_GNU_SOURCE -o zeromap main.c zeromap.c -lpthread -lcurl -lcjson
+gcc -O2 -Wall -D_GNU_SOURCE -o zeromap main.c zeromap.c decoy.c -lpthread -lcurl -lcjson
 ```
 
 ### Shodan API key (optional)
@@ -193,7 +193,7 @@ Splits a single SYN across two IP fragments. Older stateless firewalls that only
 Sends SYNs with randomised inter-packet delays between 5ms and 50ms. Designed to stay below the threshold of rate-based IDS systems that trigger on burst traffic patterns.
 
 ### Decoy burst (`--decoy`)
-Before running the actual scan, ZeroMap sends 100 spoofed SYN packets from each of 5 hardcoded fake IPs. This floods the target's connection log with noise, making your real IP harder to identify. Decoy is a **flag**, not a mode — combine it with any scan type:
+ZeroMap sends real traffic in-between decoys, and these decoys are part of CDN IPs which make them have very low chance to get flagged or blocked. This floods the target's connection log with noise, making your real IP harder to identify. Decoy is a **flag**, not a mode — combine it with any scan type:
 
 ```bash
 sudo ./zeromap 10.0.0.1 --xmas --decoy --ports 1-1024
